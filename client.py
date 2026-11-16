@@ -1,21 +1,26 @@
 import json
 import re
 
-
 class Client:
+    # Умный конструктор для разных типов данных
+    def __init__(self, *args, **kwargs):
+        if len(args) == 1 and not kwargs:
+            raw = args[0]
+            if isinstance(raw, dict):
+                self._init_from_dict(raw)
+                return
+            if isinstance(raw, str):
+                raw = raw.strip()
+                if raw.startswith("{"):
+                    self._init_from_dict(json.loads(raw))
+                else:
+                    self._init_from_string(raw)
+                return
+            raise TypeError("Неизвестный формат данных")
+        self._init_standard(*args, **kwargs)
 
-    def __init__(
-        self,
-        client_id: int,
-        last_name: str,
-        first_name: str,
-        passport_series: str,
-        passport_number: str,
-        phone: str,
-        patronymic: str | None = None,
-        email: str | None = None,
-    ):
-
+    # Стандартная инициализация
+    def _init_standard(self, client_id: int, last_name: str, first_name: str, passport_series: str, passport_number: str, phone: str, patronymic: str | None = None, email: str | None = None):
         self.client_id = client_id
         self.last_name = last_name
         self.first_name = first_name
@@ -25,52 +30,70 @@ class Client:
         self.phone = phone
         self.email = email
 
-    # валидация
+    # Распаковка из словаря
+    def _init_from_dict(self, data: dict):
+        self._init_standard(
+            client_id=int(data["client_id"]),
+            last_name=data["last_name"],
+            first_name=data["first_name"],
+            passport_series=str(data["passport_series"]),
+            passport_number=str(data["passport_number"]),
+            phone=str(data["phone"]),
+            patronymic=data.get("patronymic"),
+            email=data.get("email"),
+        )
+
+    # Парсинг строки с разделителями
+    def _init_from_string(self, str_data: str, sep: str = ";"):
+        p = [x.strip() for x in str_data.split(sep)]
+        self._init_standard(
+            client_id=int(p[0]),
+            last_name=p[1],
+            first_name=p[2],
+            patronymic=p[3] if p[3] and p[3] != "None" else None,
+            passport_series=p[4],
+            passport_number=p[5],
+            phone=p[6],
+            email=p[7] if len(p) > 7 and p[7] and p[7] != "None" else None,
+        )
 
     @staticmethod
-    def _validate_regex(value: str, pattern: str, field_name: str) -> None:
-        if not isinstance(value, str):
-            raise TypeError(f"Поле '{field_name}' должно быть строкой.")
-        if not re.match(pattern, value):
-            raise ValueError(f"Некорректный формат поля '{field_name}': {value}")
+    def _validate_regex(value: str, pattern: str, field_name: str):
+        if not isinstance(value, str) or not re.match(pattern, value):
+            raise ValueError(f"Косяк в поле {field_name}: {value}")
 
     @staticmethod
-    def validate_id(client_id: int) -> None:
+    def validate_id(client_id: int):
         if not isinstance(client_id, int) or client_id <= 0:
-            raise ValueError("ID клиента должен быть положительным целым числом.")
+            raise ValueError("ID должен быть числом > 0")
 
     @staticmethod
-    def validate_name(name: str, field_name: str = "ФИО") -> None:
-        pattern = r"^[A-Za-zА-Яа-яЁё\-]+$"
-        Client._validate_regex(name, pattern, field_name)
+    def validate_name(name: str, field_name: str = "ФИО"):
+        Client._validate_regex(name, r"^[A-Za-zА-Яа-яЁё\-]+$", field_name)
 
     @staticmethod
-    def validate_phone(phone: str) -> None:
-        pattern = r"^(\+7|8)\d{10}$"
-        Client._validate_regex(phone, pattern, "Номер телефона")
+    def validate_phone(phone: str):
+        Client._validate_regex(phone, r"^(\+7|8)\d{10}$", "Номер телефона")
 
     @staticmethod
-    def validate_passport_series(series: str) -> None:
+    def validate_passport_series(series: str):
         Client._validate_regex(series, r"^\d{4}$", "Серия паспорта")
 
     @staticmethod
-    def validate_passport_number(number: str) -> None:
+    def validate_passport_number(number: str):
         Client._validate_regex(number, r"^\d{6}$", "Номер паспорта")
 
     @staticmethod
-    def validate_email(email: str | None) -> None:
-        if email is not None:
-            pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-            Client._validate_regex(email, pattern, "Email")
-
-    # геттеры сеттеры
+    def validate_email(email: str | None):
+        if email:
+            Client._validate_regex(email, r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "Email")
 
     @property
     def client_id(self) -> int:
         return self._client_id
 
     @client_id.setter
-    def client_id(self, value: int) -> None:
+    def client_id(self, value: int):
         self.validate_id(value)
         self._client_id = value
 
@@ -79,7 +102,7 @@ class Client:
         return self._last_name
 
     @last_name.setter
-    def last_name(self, value: str) -> None:
+    def last_name(self, value: str):
         self.validate_name(value, "Фамилия")
         self._last_name = value.capitalize()
 
@@ -88,7 +111,7 @@ class Client:
         return self._first_name
 
     @first_name.setter
-    def first_name(self, value: str) -> None:
+    def first_name(self, value: str):
         self.validate_name(value, "Имя")
         self._first_name = value.capitalize()
 
@@ -97,7 +120,7 @@ class Client:
         return self._patronymic
 
     @patronymic.setter
-    def patronymic(self, value: str | None) -> None:
+    def patronymic(self, value: str | None):
         if value:
             self.validate_name(value, "Отчество")
             self._patronymic = value.capitalize()
@@ -109,7 +132,7 @@ class Client:
         return self._passport_series
 
     @passport_series.setter
-    def passport_series(self, value: str) -> None:
+    def passport_series(self, value: str):
         self.validate_passport_series(value)
         self._passport_series = value
 
@@ -118,7 +141,7 @@ class Client:
         return self._passport_number
 
     @passport_number.setter
-    def passport_number(self, value: str) -> None:
+    def passport_number(self, value: str):
         self.validate_passport_number(value)
         self._passport_number = value
 
@@ -127,7 +150,7 @@ class Client:
         return self._phone
 
     @phone.setter
-    def phone(self, value: str) -> None:
+    def phone(self, value: str):
         self.validate_phone(value)
         self._phone = value
 
@@ -136,96 +159,31 @@ class Client:
         return self._email
 
     @email.setter
-    def email(self, value: str | None) -> None:
+    def email(self, value: str | None):
         self.validate_email(value)
         self._email = value
-
-    # альтернативные конструкторы
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Client":
-        return cls(
-            client_id=int(data["client_id"]),
-            last_name=data["last_name"],
-            first_name=data["first_name"],
-            passport_series=str(data["passport_series"]),
-            passport_number=str(data["passport_number"]),
-            phone=str(data["phone"]),
-            patronymic=data.get("patronymic"),
-            email=data.get("email"),
-        )
-
-    @classmethod
-    def from_json(cls, json_str: str) -> "Client":
-        return cls.from_dict(json.loads(json_str))
-
-    @classmethod
-    def from_string(cls, str_data: str, sep: str = ";") -> "Client":
-        parts = [p.strip() for p in str_data.split(sep)]
-        if len(parts) < 7:
-            raise ValueError("Недостаточно данных для создания Client.")
-        return cls(
-            client_id=int(parts[0]),
-            last_name=parts[1],
-            first_name=parts[2],
-            patronymic=parts[3] if parts[3] and parts[3] != "None" else None,
-            passport_series=parts[4],
-            passport_number=parts[5],
-            phone=parts[6],
-            email=parts[7] if len(parts) > 7 and parts[7] and parts[7] != "None" else None,
-        )
-
-
 
     def get_initials(self) -> str:
         patr = f" {self.patronymic[0]}." if self.patronymic else ""
         return f"{self.last_name} {self.first_name[0]}.{patr}"
 
-    def to_short(self) -> "ClientShort":
-        # cоздание краткой проекции из полной сущности
-        return ClientShort(
-            client_id=self.client_id,
-            initials=self.get_initials(),
-            phone=self.phone,
-        )
-
     def __str__(self) -> str:
-        return (
-            f"Клиент #{self.client_id}: {self.last_name} {self.first_name} {self.patronymic or ''} | "
-            f"Паспорт: {self.passport_series} {self.passport_number} | Тел: {self.phone}"
-        ).strip()
+        return f"Клиент #{self.client_id}: {self.last_name} {self.first_name} | Паспорт: {self.passport_series} {self.passport_number} | Тел: {self.phone}"
 
     def __repr__(self) -> str:
-        return (
-            f"Client(id={self.client_id}, name='{self.get_initials()}', "
-            f"passport='{self.passport_series} {self.passport_number}')"
-        )
+        return f"Client(id={self.client_id}, name='{self.get_initials()}', passport='{self.passport_series} {self.passport_number}')"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Client):
             return False
-        return (
-            self.passport_series == other.passport_series
-            and self.passport_number == other.passport_number
-        )
+        return self.passport_series == other.passport_series and self.passport_number == other.passport_number
 
 
 class ClientShort:
-    # краткая форма сущности
-
     def __init__(self, client_id: int, initials: str, phone: str):
         self._client_id = client_id
         self._initials = initials
         self._phone = phone
-
-    @classmethod
-    def from_client(cls, client: Client) -> "ClientShort":
-        # альтернативное создание краткой формы из полной
-        return cls(
-            client_id=client.client_id,
-            initials=client.get_initials(),
-            phone=client.phone,
-        )
 
     @property
     def client_id(self) -> int:
@@ -249,3 +207,14 @@ class ClientShort:
         if not isinstance(other, ClientShort):
             return False
         return self.client_id == other.client_id and self.phone == other.phone
+
+
+class ClientMapper:
+    # Преобразует полного клиента в шорт-версию
+    @staticmethod
+    def to_short(client: Client) -> ClientShort:
+        return ClientShort(
+            client_id=client.client_id,
+            initials=client.get_initials(),
+            phone=client.phone,
+        )
