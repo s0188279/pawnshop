@@ -237,8 +237,33 @@ class ClientMapper:
             "email": client.email,
         }
 
+class Client_rep_base(ABC):
+    # Общий интерфейс для всех репозиториев (файлы и БД)
+    @abstractmethod
+    def get_by_id(self, client_id: int) -> Client | None:
+        pass
 
-class Client_rep_file(ABC):
+    @abstractmethod
+    def get_k_n_short_list(self, k: int, n: int) -> list[ClientShort]:
+        pass
+
+    @abstractmethod
+    def add(self, client: Client) -> Client:
+        pass
+
+    @abstractmethod
+    def replace_by_id(self, client_id: int, new_client: Client) -> bool:
+        pass
+
+    @abstractmethod
+    def delete_by_id(self, client_id: int) -> bool:
+        pass
+
+    @abstractmethod
+    def get_count(self) -> int:
+        pass
+
+class Client_rep_file(Client_rep_base):
     def __init__(self, file_path: str):
         self._file_path = file_path
         self._clients: list[Client] = []
@@ -479,3 +504,25 @@ class Client_rep_DB:
         query = "SELECT COUNT(*) FROM clients;"
         return self._db.fetchone(query)[0]
 
+class Client_rep_DB_adapter(Client_rep_base):
+    # Паттерн Адаптер: оборачивает Client_rep_DB под общий интерфейс Client_rep_base
+    def __init__(self, db_rep: Client_rep_DB):
+        self._db_rep = db_rep
+
+    def get_by_id(self, client_id: int) -> Client | None:
+        return self._db_rep.get_by_id(client_id)
+
+    def get_k_n_short_list(self, k: int, n: int) -> list[ClientShort]:
+        return self._db_rep.get_k_n_short_list(k, n)
+
+    def add(self, client: Client) -> Client:
+        return self._db_rep.add(client)
+
+    def replace_by_id(self, client_id: int, new_client: Client) -> bool:
+        return self._db_rep.replace_by_id(client_id, new_client)
+
+    def delete_by_id(self, client_id: int) -> bool:
+        return self._db_rep.delete_by_id(client_id)
+
+    def get_count(self) -> int:
+        return self._db_rep.get_count()
