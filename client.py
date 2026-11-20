@@ -2,6 +2,7 @@ import yaml
 import os
 import json
 import re
+import psycopg2
 from abc import ABC, abstractmethod
 
 class Client:
@@ -339,3 +340,117 @@ class Client_rep_yaml(Client_rep_file):
         data = [ClientMapper.to_dict(c) for c in self._clients]
         with open(self._file_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+class Client_rep_DB:
+    def __init__(self, dbname: str, user: str, password: str, host: str = "localhost", port: int = 5432):
+        # Подключение к PostgreSQL
+        self._conn = psycopg2.connect(
+            dbname=dbname, user=user, password=password, host=host, port=port
+        )
+        self._conn.autocommit = True
+        self._create_table()
+
+    # Создает таблицу, если ее еще нет
+    def _create_table(self) -> None:
+        query = """
+        CREATE TABLE IF NOT EXISTS clients (
+            client_id SERIAL PRIMARY KEY,
+            last_name VARCHAR(100) NOT NULL,
+            first_name VARCHAR(100) NOT NULL,
+            patronymic VARCHAR(100),
+            passport_series VARCHAR(4) NOT NULL,
+            passport_number VARCHAR(6) NOT NULL,
+            phone VARCHAR(20) NOT NULL,
+            email VARCHAR(100),
+            UNIQUE (passport_series, passport_number)
+        );
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(query)
+
+    # Преобразует строку из БД в объект Client
+    def _row_to_client(self, row: tuple) -> Client:
+        return Client(
+            client_id=row[0],
+            last_name=row[1],
+            first_name=row[2],
+            patronymic=row[3],
+            passport_series=row[4],
+            passport_number=row[5],
+            phone=row[6],
+            email=row[7],
+        )
+
+    # Получить клиента по ID
+    def get_by_id(self, client_id: int) -> Client | None:
+        query = "SELECT client_id, last_name, first_name, patronymic, passport_series, passport_number, phone, email FROM clients WHERE client_id = %s;"
+        with self._conn.cursor() as cur:
+            cur.execute(query, (client_id,))
+            row = cur.fetchone()
+            return self._row_to_client(row) if row else None
+
+    # Получить k-ю страницу из n кратких объектов
+    def get_k_n_short_list(self, k: int, n: int) -> list[ClientShort]:
+        offset = (k - 1) * n
+        query = "SELECT client_id, last_name, first_name, patronymic, passport_series, passport_number, phone, email FROM clients ORDER BY client_id LIMIT %s OFFSET %s;"
+        with self._conn.cursor() as cur:
+            cur.execute(query, (n, offset))
+            rows = cur.fetchall()
+            return [ClientMapper.to_short(self._row_to_client(row)) for row in rows]
+
+    # Добавить клиента и вернуть его с новым ID из БД
+    def add(self, client: Client) -> Client:
+        query = """
+        INSERT INTO clients (last_name, first_name, patronymic, passport_series, passport_number, phone, email)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING client_id;
+        """
+        params = (
+            client.last_name,
+            client.first_name,
+            client.patronymic,
+            client.passport_series,
+            client.passport_number,
+            client.phone,
+            client.email,
+        )
+        with self._conn.cursor() as cur:
+            cur.execute(query, params)
+            client.client_id = cur.fetchone()[0]
+        return client
+
+    # Заменить клиента по ID
+    def replace_by_id(self, client_id: int, new_client: Client) -> bool:
+        query = """
+        UPDATE clients
+        SET last_name = %s, first_name = %s, patronymic = %s,
+            passport_series = %s, passport_number = %s, phone = %s, email = %s
+        WHERE client_id = %s;
+        """
+        params = (
+            new_client.last_name,
+            new_client.first_name,
+            new_client.patronymic,
+            new_client.passport_series,
+            new_client.passport_number,
+            new_client.phone,
+            new_client.email,
+            client_id,
+        )
+        with self._conn.cursor() as cur:
+            cur.execute(query, params)
+            return cur.rowcount > 0
+
+    # Удалить клиента по ID
+    def delete_by_id(self, client_id: int) -> bool:
+        query = "DELETE FROM clients WHERE client_id = %s;"
+        with self._conn.cursor() as cur:
+            cur.execute(query, (client_id,))
+            return cur.rowcount > 0
+
+    # Получить количество клиентов в БД
+    def get_count(self) -> int:
+        query = "SELECT COUNT(*) FROM clients;"
+        with self._conn.cursor() as cur:
+            cur.execute(query)
+            return cur.fetchone()[0]
