@@ -1,3 +1,4 @@
+import yaml
 import os
 import json
 import re
@@ -272,6 +273,79 @@ class Client_rep_json:
         return [ClientMapper.to_short(c) for c in page]
 
     # Сортировка списка по фамилии (основное поле для ломбарда)
+    def sort_by_last_name(self) -> None:
+        self._clients.sort(key=lambda c: c.last_name)
+
+    # Добавление клиента с генерацией нового ID
+    def add(self, client: Client) -> Client:
+        if client in self._clients:
+            raise ValueError("Клиент с таким паспортом уже есть в базе")
+        new_id = max((c.client_id for c in self._clients), default=0) + 1
+        client.client_id = new_id
+        self._clients.append(client)
+        self.write_all()
+        return client
+
+    # Замена клиента по ID
+    def replace_by_id(self, client_id: int, new_client: Client) -> bool:
+        for i, client in enumerate(self._clients):
+            if client.client_id == client_id:
+                new_client.client_id = client_id
+                self._clients[i] = new_client
+                self.write_all()
+                return True
+        return False
+
+    # Удаление клиента по ID
+    def delete_by_id(self, client_id: int) -> bool:
+        for i, client in enumerate(self._clients):
+            if client.client_id == client_id:
+                del self._clients[i]
+                self.write_all()
+                return True
+        return False
+
+    # Количество клиентов в списке
+    def get_count(self) -> int:
+        return len(self._clients)
+
+class Client_rep_yaml:
+    def __init__(self, file_path: str):
+        self._file_path = file_path
+        self._clients: list[Client] = []
+        self.read_all()
+
+    # Чтение всех клиентов из YAML-файла
+    def read_all(self) -> list[Client]:
+        if not os.path.exists(self._file_path):
+            self._clients = []
+            return self._clients
+        with open(self._file_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or []
+            self._clients = [Client(item) for item in data]
+        return self._clients
+
+    # Запись всех клиентов в YAML-файл
+    def write_all(self) -> None:
+        data = [ClientMapper.to_dict(c) for c in self._clients]
+        with open(self._file_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+    # Поиск клиента по ID
+    def get_by_id(self, client_id: int) -> Client | None:
+        for client in self._clients:
+            if client.client_id == client_id:
+                return client
+        return None
+
+    # Возвращает k-ю страницу из n кратких объектов
+    def get_k_n_short_list(self, k: int, n: int) -> list[ClientShort]:
+        start = (k - 1) * n
+        end = start + n
+        page = self._clients[start:end]
+        return [ClientMapper.to_short(c) for c in page]
+
+    # Сортировка списка по фамилии
     def sort_by_last_name(self) -> None:
         self._clients.sort(key=lambda c: c.last_name)
 
