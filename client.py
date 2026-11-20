@@ -341,13 +341,49 @@ class Client_rep_yaml(Client_rep_file):
         with open(self._file_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 
-class Client_rep_DB:
+class DBConnection:
+    _instance = None
+
+    # Паттерн Одиночка: создаем экземпляр только один раз
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    # Подключаемся к БД один раз при первом создании
     def __init__(self, dbname: str, user: str, password: str, host: str = "localhost", port: int = 5432):
-        # Подключение к PostgreSQL
+        if self._initialized:
+            return
         self._conn = psycopg2.connect(
             dbname=dbname, user=user, password=password, host=host, port=port
         )
         self._conn.autocommit = True
+        self._initialized = True
+
+    # Выполняет запрос без возврата строк (CREATE, UPDATE, DELETE)
+    def execute(self, query: str, params: tuple | None = None) -> int:
+        with self._conn.cursor() as cur:
+            cur.execute(query, params)
+            return cur.rowcount
+
+    # Выполняет запрос и возвращает одну строку
+    def fetchone(self, query: str, params: tuple | None = None) -> tuple | None:
+        with self._conn.cursor() as cur:
+            cur.execute(query, params)
+            return cur.fetchone()
+
+    # Выполняет запрос и возвращает все строки
+    def fetchall(self, query: str, params: tuple | None = None) -> list[tuple]:
+        with self._conn.cursor() as cur:
+            cur.execute(query, params)
+            return cur.fetchall()
+
+
+class Client_rep_DB:
+    def __init__(self, dbname: str, user: str, password: str, host: str = "localhost", port: int = 5432):
+        # Делегация: отдаем всю работу с БД одиночке DBConnection
+        self._db = DBConnection(dbname, user, password, host, port)
         self._create_table()
 
     # Создает таблицу, если ее еще нет
@@ -365,8 +401,7 @@ class Client_rep_DB:
             UNIQUE (passport_series, passport_number)
         );
         """
-        with self._conn.cursor() as cur:
-            cur.execute(query)
+        self._db.execute(query)
 
     # Преобразует строку из БД в объект Client
     def _row_to_client(self, row: tuple) -> Client:
@@ -384,19 +419,15 @@ class Client_rep_DB:
     # Получить клиента по ID
     def get_by_id(self, client_id: int) -> Client | None:
         query = "SELECT client_id, last_name, first_name, patronymic, passport_series, passport_number, phone, email FROM clients WHERE client_id = %s;"
-        with self._conn.cursor() as cur:
-            cur.execute(query, (client_id,))
-            row = cur.fetchone()
-            return self._row_to_client(row) if row else None
+        row = self._db.fetchone(query, (client_id,))
+        return self._row_to_client(row) if row else None
 
     # Получить k-ю страницу из n кратких объектов
     def get_k_n_short_list(self, k: int, n: int) -> list[ClientShort]:
         offset = (k - 1) * n
         query = "SELECT client_id, last_name, first_name, patronymic, passport_series, passport_number, phone, email FROM clients ORDER BY client_id LIMIT %s OFFSET %s;"
-        with self._conn.cursor() as cur:
-            cur.execute(query, (n, offset))
-            rows = cur.fetchall()
-            return [ClientMapper.to_short(self._row_to_client(row)) for row in rows]
+        rows = self._db.fetchall(query, (n, offset))
+        return [ClientMapper.to_short(self._row_to_client(row)) for row in rows]
 
     # Добавить клиента и вернуть его с новым ID из БД
     def add(self, client: Client) -> Client:
@@ -414,9 +445,8 @@ class Client_rep_DB:
             client.phone,
             client.email,
         )
-        with self._conn.cursor() as cur:
-            cur.execute(query, params)
-            client.client_id = cur.fetchone()[0]
+        row = self._db.fetchone(query, params)
+        client.client_id = row[0]
         return client
 
     # Заменить клиента по ID
@@ -437,20 +467,15 @@ class Client_rep_DB:
             new_client.email,
             client_id,
         )
-        with self._conn.cursor() as cur:
-            cur.execute(query, params)
-            return cur.rowcount > 0
+        return self._db.execute(query, params) > 0
 
     # Удалить клиента по ID
     def delete_by_id(self, client_id: int) -> bool:
         query = "DELETE FROM clients WHERE client_id = %s;"
-        with self._conn.cursor() as cur:
-            cur.execute(query, (client_id,))
-            return cur.rowcount > 0
+        return self._db.execute(query, (client_id,)) > 0
 
     # Получить количество клиентов в БД
     def get_count(self) -> int:
         query = "SELECT COUNT(*) FROM clients;"
-        with self._conn.cursor() as cur:
-            cur.execute(query)
-            return cur.fetchone()[0]
+        return self._db.fetchone(query)[0]
+
